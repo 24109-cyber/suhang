@@ -10,7 +10,7 @@
       "imports": {
         "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
         "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
-        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
+        "firebase/database": "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js"
       }
     }
   </script>
@@ -35,6 +35,9 @@
     .btn-success:hover { background: #1b5e20; }
     
     .flex-row { display: flex; gap: 10px; }
+    .auth-box { display: flex; flex-direction: column; gap: 5px; margin-bottom: 15px; max-width: 400px; }
+    .or-divider { margin: 10px 0; text-align: center; color: #888; font-size: 13px; position: relative; }
+    
     .news-list { max-height: 200px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; background: white; padding: 5px; margin-top: 10px; }
     .news-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; transition: 0.1s; }
     .news-item:hover { background: #e8eaf6; }
@@ -49,14 +52,27 @@
 
 <div class="container">
   <h1>AI 경제 뉴스 해설사</h1>
-  <div class="subtitle">구글 로그인부터 뉴스 검색, GPT 해설, TTS 리딩 및 Firestore 저장까지</div>
+  <div class="subtitle">이메일 등록/로그인 기능이 추가된 원스톱 뉴스 가이드</div>
 
   <div class="section">
     <div class="section-title">
-      <span>1. 구글 인증</span>
-      <span id="userInfo" class="user-info">로그인 필요</span>
+      <span>1. 사용자 인증</span>
+      <span id="userInfo" class="user-info">로그인 필요 (로그인 안 해도 사용 가능)</span>
     </div>
-    <button id="loginBtn">구글 계정으로 로그인</button>
+    
+    <div id="authForm" class="auth-box">
+      <input type="email" id="authEmail" placeholder="이메일 주소 입력">
+      <input type="password" id="authPassword" placeholder="비밀번호 입력 (6자리 이상)">
+      <div class="flex-row">
+        <button id="emailSignUpBtn" class="btn-secondary" style="flex: 1;">이메일로 회원가입</button>
+        <button id="emailSignInBtn" style="flex: 1;">이메일로 로그인</button>
+      </div>
+    </div>
+
+    <div id="orDivider" class="or-divider">— 또는 —</div>
+    
+    <button id="googleLoginBtn">구글 계정으로 로그인</button>
+    <button id="logoutBtn" class="btn-secondary" style="display: none;">로그아웃</button>
   </div>
 
   <div class="section">
@@ -83,45 +99,61 @@
 
   <div class="section">
     <div class="section-title">4. 나만의 뉴스 해설 노트에 저장</div>
-    <button id="saveBtn" class="btn-success" disabled>현재 해설 Firestore에 저장하기</button>
+    <button id="saveBtn" class="btn-success" disabled>현재 해설 DB에 저장하기</button>
   </div>
 
   <div id="statusMessage" class="status"></div>
 </div>
 
 <script type="module">
-  // Firebase 라이브러리 기능 가져오기
   import { initializeApp } from "firebase/app";
-  import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "firebase/auth";
-  import { getFirestore, collection, addDoc } from "firebase/firestore";
+  import { 
+    getAuth, 
+    signInWithPopup, 
+    GoogleAuthProvider, 
+    createUserWithEmailAndPassword, 
+    signInWithEmailAndPassword, 
+    signOut,
+    onAuthStateChanged 
+  } from "firebase/auth";
+  import { getDatabase, ref, push } from "firebase/database";
 
   // ⚠️ [필수 입력 1] 본인의 Firebase 웹 앱 SDK 설정값으로 대체하세요.
-  const firebaseConfig = {
-    apiKey: "YOUR_FIREBASE_API_KEY",
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
-  };
+const firebaseConfig = {
+  apiKey: "AIzaSyDIw9QBT1IohdQWoqwQyKyuOFKy_5A0r0k",
+  authDomain: "connect-bde66.firebaseapp.com",
+  databaseURL: "https://connect-bde66-default-rtdb.firebaseio.com",
+  projectId: "connect-bde66",
+  storageBucket: "connect-bde66.firebasestorage.app",
+  messagingSenderId: "496355380495",
+  appId: "1:496355380495:web:716eed867ba27186df827a",
+  measurementId: "G-HDVXCH589F"
+};
 
   // ⚠️ [필수 입력 2] 본인의 OpenAI API 비밀 키를 입력하세요.
   const OPENAI_API_KEY = "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";
 
-  // Firebase 및 서비스 초기화
+  // 초기화
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
-  const db = getFirestore(app);
+  const database = getDatabase(app);
   const provider = new GoogleAuthProvider();
 
-  // 전역 상태 변수
   let currentUser = null;
   let selectedNews = null;
   let currentExplanation = "";
 
-  // DOM 요소 참조
-  const loginBtn = document.getElementById('loginBtn');
+  // DOM 객체들
   const userInfo = document.getElementById('userInfo');
+  const authForm = document.getElementById('authForm');
+  const orDivider = document.getElementById('orDivider');
+  const authEmail = document.getElementById('authEmail');
+  const authPassword = document.getElementById('authPassword');
+  const emailSignUpBtn = document.getElementById('emailSignUpBtn');
+  const emailSignInBtn = document.getElementById('emailSignInBtn');
+  const googleLoginBtn = document.getElementById('googleLoginBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+  
   const searchKeyword = document.getElementById('searchKeyword');
   const searchBtn = document.getElementById('searchBtn');
   const newsList = document.getElementById('newsList');
@@ -134,32 +166,74 @@
 
   function setStatus(msg) { statusMessage.textContent = msg; }
 
-  // [기능 1] 구글 로그인 연동 및 상태 감지
-  loginBtn.addEventListener('click', async () => {
+  // [기능 1-1] 이메일 회원가입 등록
+  emailSignUpBtn.addEventListener('click', async () => {
+    const email = authEmail.value.trim();
+    const password = authPassword.value;
+    if(!email || !password) return alert("이메일과 비밀번호를 모두 입력하세요.");
+    
+    setStatus("회원가입 계정 등록 중...");
     try {
-      setStatus("구글 로그인 팝업 창을 여는 중...");
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error(error);
-      alert("로그인 실패: " + error.message);
+      await createUserWithEmailAndPassword(auth, email, password);
+      alert("회원가입 및 로그인 성공!");
+    } catch(e) {
+      console.error(e);
+      alert("가입 실패: " + e.message);
     }
   });
 
+  // [기능 1-2] 이메일 로그인
+  emailSignInBtn.addEventListener('click', async () => {
+    const email = authEmail.value.trim();
+    const password = authPassword.value;
+    if(!email || !password) return alert("이메일과 비밀번호를 모두 입력하세요.");
+    
+    setStatus("이메일 로그인 시도 중...");
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      alert("로그인 성공!");
+    } catch(e) {
+      console.error(e);
+      alert("로그인 실패: " + e.message);
+    }
+  });
+
+  // [기능 1-3] 구글 로그인
+  googleLoginBtn.addEventListener('click', async () => {
+    try {
+      setStatus("구글 인증 창 팝업 중...");
+      await signInWithPopup(auth, provider);
+    } catch (e) {
+      alert("구글 로그인 실패: " + e.message);
+    }
+  });
+
+  // [기능 1-4] 로그아웃
+  logoutBtn.addEventListener('click', () => {
+    signOut(auth).then(() => alert("로그아웃 되었습니다."));
+  });
+
+  // 인증 상태 실시간 감지 감시자
   onAuthStateChanged(auth, (user) => {
     if (user) {
       currentUser = user;
-      userInfo.textContent = `사용자: ${user.displayName} (${user.email})`;
-      loginBtn.textContent = "로그인 완료";
-      loginBtn.disabled = true;
-      setStatus("구글인증 완료. 뉴스를 검색해 보세요.");
+      userInfo.textContent = `접속 계정: ${user.email}`;
+      authForm.style.display = "none";
+      orDivider.style.display = "none";
+      googleLoginBtn.style.display = "none";
+      logoutBtn.style.display = "block";
+      setStatus("인증 완료. 뉴스를 검색해 보세요.");
     } else {
       currentUser = null;
-      userInfo.textContent = "로그인 필요";
-      loginBtn.disabled = false;
+      userInfo.textContent = "로그인 없이 게스트 상태로 진행 가능";
+      authForm.style.display = "flex";
+      orDivider.style.display = "block";
+      googleLoginBtn.style.display = "block";
+      logoutBtn.style.display = "none";
     }
   });
 
-  // [기능 2] 뉴스 검색 (클라이언트 단에서 AllOrigins 프록시를 이용해 Google RSS 크롤링 CORS 우회)
+  // [기능 2] 뉴스 검색 (AllOrigins 프록시 우회 사용)
   searchBtn.addEventListener('click', async () => {
     const keyword = searchKeyword.value.trim();
     if(!keyword) return alert("검색어를 입력하세요.");
@@ -170,13 +244,11 @@
 
     try {
       const targetUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword + " 경제")}&hl=ko&gl=KR&ceid=KR:ko`;
-      // 프론트엔드 직접 크롤링 시 발생하는 CORS 방지를 위한 무료 프록시 사용
       const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
       
       const response = await fetch(proxyUrl);
       const json = await response.json();
       
-      // XML 파싱
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(json.contents, "text/xml");
       const items = xmlDoc.getElementsByTagName("item");
@@ -187,7 +259,6 @@
         return;
       }
 
-      // 최대 7개 노출
       const limit = Math.min(items.length, 7);
       for(let i = 0; i < limit; i++) {
         const title = items[i].getElementsByTagName("title")[0]?.textContent || "";
@@ -207,19 +278,19 @@
         };
         newsList.appendChild(div);
       }
-      setStatus("검색 완료. 해설을 원하는 뉴스를 선택하세요.");
+      setStatus("검색 완료. 뉴스를 선택해 보세요.");
     } catch (e) {
       console.error(e);
       newsList.innerHTML = "뉴스 수집 실패";
-      setStatus("뉴스 검색 중 오류가 발생했습니다.");
+      setStatus("뉴스 검색 중 오류 발생.");
     }
   });
 
-  // [기능 3] GPT 설명 생성 (Fetch API 호출)
+  // [기능 3] GPT 설명 생성 및 자동 TTS 연동
   gptBtn.addEventListener('click', async () => {
     if(!selectedNews) return;
-    setStatus("OpenAI GPT 해설 문장을 생성하는 중...");
-    explanationOutput.textContent = "AI가 작성 중입니다...";
+    setStatus("OpenAI GPT 해설을 구성하는 중...");
+    explanationOutput.textContent = "AI 해설사가 작성 중입니다...";
     gptBtn.disabled = true;
 
     try {
@@ -244,22 +315,20 @@
       currentExplanation = gptData.choices[0].message.content.trim();
       explanationOutput.textContent = currentExplanation;
       
-      // 해설이 완료되면 연속으로 TTS 오디오 생성 트리거
       await generateTTS(currentExplanation);
       
       saveBtn.disabled = false;
       gptBtn.disabled = false;
     } catch(e) {
       console.error(e);
-      explanationOutput.textContent = "GPT 생성 에러: " + e.message;
+      explanationOutput.textContent = "GPT 생성 실패: " + e.message;
       gptBtn.disabled = false;
-      setStatus("오류 발생");
     }
   });
 
-  // [기능 4] TTS 읽기 생성 (Fetch API 호출)
+  // [기능 4] TTS 오디오 리딩 가이드 생성
   async function generateTTS(text) {
-    setStatus("설명에 대한 AI 음성 가이드를 생성하는 중...");
+    setStatus("AI 성우의 음성 브리핑 가이드를 제작 중입니다...");
     try {
       const ttsResponse = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
@@ -274,46 +343,44 @@
         })
       });
 
-      if (!ttsResponse.ok) throw new Error("TTS 호출 에러");
+      if (!ttsResponse.ok) throw new Error("TTS 통신 에러");
 
       const audioBlob = await ttsResponse.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-      
-      ttsAudio.src = audioUrl;
+      ttsAudio.src = URL.createObjectURL(audioBlob);
       audioPlayerContainer.style.display = "block";
-      setStatus("해설 도출 및 TTS 음성 합성이 모두 완료되었습니다!");
+      setStatus("해설 및 음성 리딩 준비가 모두 끝났습니다!");
     } catch(e) {
       console.error(e);
-      setStatus("TTS 생성 실패 (텍스트 해설은 사용 가능)");
+      setStatus("음성 생성에 실패했습니다. (텍스트는 저장 가능)");
     }
   }
 
-  // [기능 5] Firestore에 바로 저장하기
-saveBtn.addEventListener('click', async () => {
-  // 걍 로그인 체크 안 하고 바로 저장하기!
-  if(!selectedNews || !currentExplanation) return;
-  
-  setStatus("데이터베이스에 기록 중...");
-  saveBtn.disabled = true;
+  // [기능 5] Realtime Database에 저장 (규칙 검사 없이 패스)
+  saveBtn.addEventListener('click', async () => {
+    if(!selectedNews || !currentExplanation) return;
 
-  try {
-    await addDoc(collection(db, "news_notes"), {
-      userEmail: currentUser ? currentUser.email : "guest@test.com", // 로그인 안 했으면 게스트로 처리
-      userName: currentUser ? currentUser.displayName : "방문자",
-      newsTitle: selectedNews.title,
-      newsLink: selectedNews.link,
-      explanation: currentExplanation,
-      savedAt: new Date().toISOString()
-    });
+    setStatus("Realtime Database에 노트를 보관하는 중...");
+    saveBtn.disabled = true;
 
-    alert("성공적으로 저장되었습니다!");
-    setStatus("저장 완료.");
-  } catch(e) {
-    console.error(e);
-    alert("저장 오류: " + e.message);
-    saveBtn.disabled = false;
-  }
-});
+    try {
+      // 주석 제거 상태로 아까 열어둔 Realtime DB의 'news_notes' 노드에 push
+      const dbRef = ref(database, 'news_notes');
+      await push(dbRef, {
+        userEmail: currentUser ? currentUser.email : "guest_user",
+        newsTitle: selectedNews.title,
+        newsLink: selectedNews.link,
+        explanation: currentExplanation,
+        savedAt: new Date().toISOString()
+      });
+
+      alert("데이터베이스 저장 성공!");
+      setStatus("보관함 저장 완료.");
+    } catch(e) {
+      console.error(e);
+      alert("저장 오류: " + e.message);
+      saveBtn.disabled = false;
+    }
+  });
 </script>
 </body>
 </html>
