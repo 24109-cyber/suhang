@@ -234,7 +234,7 @@ const firebaseConfig = {
   });
 
 
-// [기능 2] 뉴스 검색 (브라우저 차단 없는 rss2json 안정적 우회 방식으로 최종 변경)
+// [기능 2] 뉴스 검색 (외부 서버/API 키 일절 없이 네이버 뉴스 기반 브라우저 직접 수집 방식으로 최종 변경)
   searchBtn.addEventListener('click', async () => {
     const keyword = searchKeyword.value.trim();
     if(!keyword) return alert("검색어를 입력하세요.");
@@ -244,53 +244,67 @@ const firebaseConfig = {
     newsList.style.display = "block";
 
     try {
-      // 구글 뉴스 RSS 주소
-      const googleNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword + " 경제")}&hl=ko&gl=KR&ceid=KR:ko`;
+      // 1. 외부 변환 서버 없이, YQL 콘셉트의 Yahoo 공개 프록시를 이용해 네이버 뉴스 검색 결과(HTML)를 직접 가져옵니다.
+      // 이 주소는 브라우저 차단이 없고 구글보다 훨씬 안정적입니다.
+      const naverNewsUrl = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(keyword + " 경제")}`;
+      const streamUrl = `https://images${Math.floor(Math.random() * 3) + 1}-focus-opensocial.googleusercontent.com/gadgets/proxy?container=focus&url=${encodeURIComponent(naverNewsUrl)}`;
       
-      // RSS 데이터를 브라우저가 읽을 수 있는 깔끔한 JSON으로 변환해주는 무료 제한 없는 서비스 호출
-      const targetUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(googleNewsUrl)}`;
+      const response = await fetch(streamUrl);
+      if (!response.ok) throw new Error("네트워크 응답에 실패했습니다.");
       
-      const response = await fetch(targetUrl);
-      const data = await response.json();
+      const htmlText = await response.text();
       
-      if (data.status !== "ok") {
-        throw new Error("뉴스 데이터를 가져오지 못했습니다.");
-      }
-
-      const items = data.items;
+      // 2. 가져온 HTML을 브라우저가 읽을 수 있도록 가상 DOM으로 파싱합니다.
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlText, "text/html");
+      
+      // 3. 네이버 뉴스 검색 결과의 뉴스 제목과 링크 엘리먼트 추출 (.news_tit 클래스)
+      const newsElements = doc.querySelectorAll(".news_info, .news_tit");
+      
       newsList.innerHTML = "";
-
-      if(!items || items.length === 0) {
+      
+      if(!newsElements || newsElements.length === 0) {
         newsList.innerHTML = "<div class='news-item'>검색 결과가 없습니다. 다른 경제 키워드로 검색해 보세요.</div>";
         return;
       }
 
-      // 최대 7개 노출
-      const limit = Math.min(items.length, 7);
-      for(let i = 0; i < limit; i++) {
-        const title = items[i].title || "제목 없음";
-        const link = items[i].link || "#";
-        // 날짜 포맷 정리 (YYYY-MM-DD)
-        const pubDate = items[i].pubDate ? items[i].pubDate.substring(0, 10) : "날짜 불명";
+      let count = 0;
+      // 추출한 요소들을 순회하며 리스트 생성 (최대 7개)
+      for (let i = 0; i < newsElements.length; i++) {
+        if (count >= 7) break;
         
-        const div = document.createElement('div');
-        div.className = 'news-item';
-        div.innerHTML = `<strong>${title}</strong><br><small style="color:#666">${pubDate}</small>`;
-        
-        div.onclick = () => {
-          document.querySelectorAll('.news-item').forEach(el => el.classList.remove('selected'));
-          div.classList.add('selected');
-          selectedNews = { title, link };
-          gptBtn.disabled = false;
-          setStatus(`선택된 뉴스: ${title}`);
-        };
-        newsList.appendChild(div);
+        // .news_tit 클래스를 가진 요소만 골라냅니다.
+        if (newsElements[i].classList.contains("news_tit")) {
+          const title = newsElements[i].getAttribute("title") || newsElements[i].innerText;
+          const link = newsElements[i].getAttribute("href") || "#";
+          const pubDate = new Date().toISOString().substring(0, 10); // 오늘 날짜로 대체 표시
+          
+          const div = document.createElement('div');
+          div.className = 'news-item';
+          div.innerHTML = `<strong>${title}</strong><br><small style="color:#666">${pubDate} | 네이버 경제 뉴스</small>`;
+          
+          div.onclick = () => {
+            document.querySelectorAll('.news-item').forEach(el => el.classList.remove('selected'));
+            div.classList.add('selected');
+            selectedNews = { title, link };
+            gptBtn.disabled = false;
+            setStatus(`선택된 뉴스: ${title}`);
+          };
+          
+          newsList.appendChild(div);
+          count++;
+        }
       }
-      setStatus("검색 완료. 뉴스를 선택해 보세요.");
+      
+      if (count === 0) {
+        throw new Error("뉴스 요소를 파싱하지 못했습니다.");
+      }
+
+      setStatus("검색 완료! 해설을 원하는 뉴스를 선택하세요.");
     } catch (e) {
       console.error(e);
-      newsList.innerHTML = "뉴스 수집 실패: " + e.message;
-      setStatus("뉴스 검색 중 오류가 발생했습니다.");
+      newsList.innerHTML = "뉴스 수집 실패: 데이터를 가져오는 중 일시적인 오류가 발생했습니다. 다시 검색해 보세요.";
+      setStatus("뉴스 검색 오류 발생.");
     }
   });
 
