@@ -52,7 +52,7 @@
 
 <div class="container">
   <h1>AI 경제 뉴스 해설사</h1>
-  <div class="subtitle">이메일 등록/로그인 기능이 추가된 원스톱 뉴스 가이드</div>
+  <div class="subtitle">이메일 가입/로그인 및 뉴스 직접 입력 기능이 결합된 통합 플랫폼</div>
 
   <div class="section">
     <div class="section-title">
@@ -76,12 +76,24 @@
   </div>
 
   <div class="section">
-    <div class="section-title">2. 경제 뉴스 검색 및 선택</div>
+    <div class="section-title">2. 경제 뉴스 검색 또는 직접 입력</div>
+    
     <div class="flex-row">
       <input type="text" id="searchKeyword" placeholder="예: 삼성전자 반도체, 금리 인상, 환율 등">
       <button id="searchBtn">뉴스 검색</button>
     </div>
     <div id="newsList" class="news-list" style="display:none;"></div>
+
+    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px dashed #ccc;">
+      <div style="font-size: 14px; font-weight: bold; margin-bottom: 8px; color: #555;">
+        ⚠️ 뉴스 검색이 안 되나요? 뉴스 제목과 링크(URL)를 직접 입력해 보세요!
+      </div>
+      <input type="text" id="directTitleInput" placeholder="여기에 뉴스 제목을 복사해서 붙여넣으세요.">
+      <div class="flex-row">
+        <input type="text" id="directUrlInput" placeholder="여기에 뉴스 기사 URL(링크)을 붙여넣으세요. (선택사항)">
+        <button id="directApplyBtn" class="btn-secondary" style="white-space: nowrap;">이 뉴스 선택</button>
+      </div>
+    </div>
   </div>
 
   <div class="section">
@@ -118,7 +130,7 @@
   } from "firebase/auth";
   import { getDatabase, ref, push } from "firebase/database";
 
-  // ⚠️ [필수 입력 1] 본인의 Firebase 웹 앱 SDK 설정값으로 대체하세요.
+  // ⚠️ [필수 입력 1] 본인의 Firebase 웹 앱 SDK 설정값으로 바꾸어 주세요.
 const firebaseConfig = {
   apiKey: "AIzaSyDIw9QBT1IohdQWoqwQyKyuOFKy_5A0r0k",
   authDomain: "connect-bde66.firebaseapp.com",
@@ -133,17 +145,18 @@ const firebaseConfig = {
   // ⚠️ [필수 입력 2] 본인의 OpenAI API 비밀 키를 입력하세요.
   const OPENAI_API_KEY = "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";
 
-  // 초기화
+  // 서비스 초기화
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const database = getDatabase(app);
   const provider = new GoogleAuthProvider();
 
+  // 전역 상태 변수
   let currentUser = null;
   let selectedNews = null;
   let currentExplanation = "";
 
-  // DOM 객체들
+  // DOM 요소 참조
   const userInfo = document.getElementById('userInfo');
   const authForm = document.getElementById('authForm');
   const orDivider = document.getElementById('orDivider');
@@ -157,6 +170,11 @@ const firebaseConfig = {
   const searchKeyword = document.getElementById('searchKeyword');
   const searchBtn = document.getElementById('searchBtn');
   const newsList = document.getElementById('newsList');
+
+  const directTitleInput = document.getElementById('directTitleInput');
+  const directUrlInput = document.getElementById('directUrlInput');
+  const directApplyBtn = document.getElementById('directApplyBtn');
+
   const gptBtn = document.getElementById('gptBtn');
   const explanationOutput = document.getElementById('explanationOutput');
   const audioPlayerContainer = document.getElementById('audioPlayerContainer');
@@ -213,7 +231,7 @@ const firebaseConfig = {
     signOut(auth).then(() => alert("로그아웃 되었습니다."));
   });
 
-  // 인증 상태 실시간 감지 감시자
+  // 회원 상태 변경 감시자
   onAuthStateChanged(auth, (user) => {
     if (user) {
       currentUser = user;
@@ -222,10 +240,10 @@ const firebaseConfig = {
       orDivider.style.display = "none";
       googleLoginBtn.style.display = "none";
       logoutBtn.style.display = "block";
-      setStatus("인증 완료. 뉴스를 검색해 보세요.");
+      setStatus("인증 완료. 뉴스를 가져오거나 직접 입력하세요.");
     } else {
       currentUser = null;
-      userInfo.textContent = "로그인 없이 게스트 상태로 진행 가능";
+      userInfo.textContent = "로그인 없이 게스트 상태로 이용 가능";
       authForm.style.display = "flex";
       orDivider.style.display = "block";
       googleLoginBtn.style.display = "block";
@@ -233,8 +251,7 @@ const firebaseConfig = {
     }
   });
 
-
-// [기능 2] 뉴스 검색 (외부 서버/API 키 일절 없이 네이버 뉴스 기반 브라우저 직접 수집 방식으로 최종 변경)
+  // [기능 2-1] 뉴스 실시간 검색 (rss2json 우회 시도 방식)
   searchBtn.addEventListener('click', async () => {
     const keyword = searchKeyword.value.trim();
     if(!keyword) return alert("검색어를 입력하세요.");
@@ -244,75 +261,72 @@ const firebaseConfig = {
     newsList.style.display = "block";
 
     try {
-      // 1. 외부 변환 서버 없이, YQL 콘셉트의 Yahoo 공개 프록시를 이용해 네이버 뉴스 검색 결과(HTML)를 직접 가져옵니다.
-      // 이 주소는 브라우저 차단이 없고 구글보다 훨씬 안정적입니다.
-      const naverNewsUrl = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(keyword + " 경제")}`;
-      const streamUrl = `https://images${Math.floor(Math.random() * 3) + 1}-focus-opensocial.googleusercontent.com/gadgets/proxy?container=focus&url=${encodeURIComponent(naverNewsUrl)}`;
+      const googleNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword + " 경제")}&hl=ko&gl=KR&ceid=KR:ko`;
+      const targetUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(googleNewsUrl)}`;
       
-      const response = await fetch(streamUrl);
-      if (!response.ok) throw new Error("네트워크 응답에 실패했습니다.");
+      const response = await fetch(targetUrl);
+      const data = await response.json();
       
-      const htmlText = await response.text();
-      
-      // 2. 가져온 HTML을 브라우저가 읽을 수 있도록 가상 DOM으로 파싱합니다.
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(htmlText, "text/html");
-      
-      // 3. 네이버 뉴스 검색 결과의 뉴스 제목과 링크 엘리먼트 추출 (.news_tit 클래스)
-      const newsElements = doc.querySelectorAll(".news_info, .news_tit");
-      
+      if (data.status !== "ok") throw new Error("뉴스 API 거부");
+
+      const items = data.items;
       newsList.innerHTML = "";
-      
-      if(!newsElements || newsElements.length === 0) {
-        newsList.innerHTML = "<div class='news-item'>검색 결과가 없습니다. 다른 경제 키워드로 검색해 보세요.</div>";
+
+      if(!items || items.length === 0) {
+        newsList.innerHTML = "<div class='news-item'>검색 결과가 없습니다. 하단 직접 입력을 이용해 주세요.</div>";
         return;
       }
 
-      let count = 0;
-      // 추출한 요소들을 순회하며 리스트 생성 (최대 7개)
-      for (let i = 0; i < newsElements.length; i++) {
-        if (count >= 7) break;
+      const limit = Math.min(items.length, 7);
+      for(let i = 0; i < limit; i++) {
+        const title = items[i].title || "제목 없음";
+        const link = items[i].link || "#";
+        const pubDate = items[i].pubDate ? items[i].pubDate.substring(0, 10) : "날짜 불명";
         
-        // .news_tit 클래스를 가진 요소만 골라냅니다.
-        if (newsElements[i].classList.contains("news_tit")) {
-          const title = newsElements[i].getAttribute("title") || newsElements[i].innerText;
-          const link = newsElements[i].getAttribute("href") || "#";
-          const pubDate = new Date().toISOString().substring(0, 10); // 오늘 날짜로 대체 표시
-          
-          const div = document.createElement('div');
-          div.className = 'news-item';
-          div.innerHTML = `<strong>${title}</strong><br><small style="color:#666">${pubDate} | 네이버 경제 뉴스</small>`;
-          
-          div.onclick = () => {
-            document.querySelectorAll('.news-item').forEach(el => el.classList.remove('selected'));
-            div.classList.add('selected');
-            selectedNews = { title, link };
-            gptBtn.disabled = false;
-            setStatus(`선택된 뉴스: ${title}`);
-          };
-          
-          newsList.appendChild(div);
-          count++;
-        }
+        const div = document.createElement('div');
+        div.className = 'news-item';
+        div.innerHTML = `<strong>${title}</strong><br><small style="color:#666">${pubDate}</small>`;
+        
+        div.onclick = () => {
+          document.querySelectorAll('.news-item').forEach(el => el.classList.remove('selected'));
+          div.classList.add('selected');
+          selectedNews = { title, link };
+          gptBtn.disabled = false;
+          setStatus(`선택된 뉴스: ${title}`);
+        };
+        newsList.appendChild(div);
       }
-      
-      if (count === 0) {
-        throw new Error("뉴스 요소를 파싱하지 못했습니다.");
-      }
-
-      setStatus("검색 완료! 해설을 원하는 뉴스를 선택하세요.");
+      setStatus("검색 완료. 뉴스를 선택하거나 하단에 직접 입력해 보세요.");
     } catch (e) {
       console.error(e);
-      newsList.innerHTML = "뉴스 수집 실패: 데이터를 가져오는 중 일시적인 오류가 발생했습니다. 다시 검색해 보세요.";
-      setStatus("뉴스 검색 오류 발생.");
+      newsList.innerHTML = "<div class='news-item' style='color:red;'>⚠️ 뉴스 자동 검색 차단됨 (하단에 제목과 URL을 복사해서 직접 입력해 주세요!)</div>";
+      setStatus("CORS 정책으로 자동 검색 실패. 직접 입력 서비스를 권장합니다.");
     }
   });
 
-  // [기능 3] GPT 설명 생성 및 자동 TTS 연동
+  // [기능 2-2] 뉴스 수동 수집 (제목 및 URL 직접 적용 치트키)
+  directApplyBtn.addEventListener('click', () => {
+    const title = directTitleInput.value.trim();
+    let url = directUrlInput.value.trim();
+    
+    if(!title) return alert("뉴스 제목은 필수입니다. 붙여넣어 주세요!");
+    
+    if(!url) {
+      url = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(title)}`;
+    }
+
+    selectedNews = { title: title, link: url };
+    gptBtn.disabled = false; // GPT 버튼 해제
+
+    setStatus(`[직접 입력 선택 완료] 현재 대상: ${title}`);
+    alert(`"${title}" 뉴스가 선택되었습니다!\n3번 버튼을 눌러 GPT 경제 해설을 요청하세요.`);
+  });
+
+  // [기능 3] GPT 설명 생성 및 자동 TTS 오디오 연동
   gptBtn.addEventListener('click', async () => {
     if(!selectedNews) return;
-    setStatus("OpenAI GPT 해설을 구성하는 중...");
-    explanationOutput.textContent = "AI 해설사가 작성 중입니다...";
+    setStatus("OpenAI GPT 해설 문장을 빌드하고 있습니다...");
+    explanationOutput.textContent = "AI 경제 해설사가 분석을 시작했습니다...";
     gptBtn.disabled = true;
 
     try {
@@ -337,20 +351,21 @@ const firebaseConfig = {
       currentExplanation = gptData.choices[0].message.content.trim();
       explanationOutput.textContent = currentExplanation;
       
+      // 오디오 스트리밍 생성 자동 연동
       await generateTTS(currentExplanation);
       
       saveBtn.disabled = false;
       gptBtn.disabled = false;
     } catch(e) {
       console.error(e);
-      explanationOutput.textContent = "GPT 생성 실패: " + e.message;
+      explanationOutput.textContent = "GPT 해설 생성 중 에러 발생: " + e.message;
       gptBtn.disabled = false;
     }
   });
 
-  // [기능 4] TTS 오디오 리딩 가이드 생성
+  // [기능 4] TTS 읽기 오디오 가이드 빌드
   async function generateTTS(text) {
-    setStatus("AI 성우의 음성 브리핑 가이드를 제작 중입니다...");
+    setStatus("텍스트를 기반으로 오디오 음성 리딩을 합성하는 중...");
     try {
       const ttsResponse = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
@@ -365,27 +380,26 @@ const firebaseConfig = {
         })
       });
 
-      if (!ttsResponse.ok) throw new Error("TTS 통신 에러");
+      if (!ttsResponse.ok) throw new Error("TTS 통신 에러 발생");
 
       const audioBlob = await ttsResponse.blob();
       ttsAudio.src = URL.createObjectURL(audioBlob);
       audioPlayerContainer.style.display = "block";
-      setStatus("해설 및 음성 리딩 준비가 모두 끝났습니다!");
+      setStatus("해설 및 음성 변환 완료! 이제 마음껏 들어보세요.");
     } catch(e) {
       console.error(e);
-      setStatus("음성 생성에 실패했습니다. (텍스트는 저장 가능)");
+      setStatus("TTS 오디오 생성 실패 (우측 텍스트는 정상적으로 확인/저장 가능)");
     }
   }
 
-  // [기능 5] Realtime Database에 저장 (규칙 검사 없이 패스)
+  // [기능 5] Realtime Database에 완벽히 저장하기
   saveBtn.addEventListener('click', async () => {
     if(!selectedNews || !currentExplanation) return;
 
-    setStatus("Realtime Database에 노트를 보관하는 중...");
+    setStatus("Realtime Database 보관함에 쓰는 중...");
     saveBtn.disabled = true;
 
     try {
-      // 주석 제거 상태로 아까 열어둔 Realtime DB의 'news_notes' 노드에 push
       const dbRef = ref(database, 'news_notes');
       await push(dbRef, {
         userEmail: currentUser ? currentUser.email : "guest_user",
@@ -395,11 +409,11 @@ const firebaseConfig = {
         savedAt: new Date().toISOString()
       });
 
-      alert("데이터베이스 저장 성공!");
-      setStatus("보관함 저장 완료.");
+      alert("데이터베이스 저장에 성공했습니다! 나만의 서재에 보관 완료.");
+      setStatus("저장 작업 완료.");
     } catch(e) {
       console.error(e);
-      alert("저장 오류: " + e.message);
+      alert("DB 저장 에러: " + e.message);
       saveBtn.disabled = false;
     }
   });
