@@ -143,7 +143,7 @@ const firebaseConfig = {
 };
 
   // ⚠️ [필수 입력 2] 본인의 OpenAI API 비밀 키를 입력하세요.
-  const OPENAI_API_KEY = "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";
+  const OPENAI_API_KEY = "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";
 
   // 서비스 초기화
   const app = initializeApp(firebaseConfig);
@@ -304,24 +304,43 @@ const firebaseConfig = {
     }
   });
 
-  // [기능 2-2] 뉴스 수동 수집 (제목 및 URL 직접 적용 치트키)
+ // [기능 2-2] 뉴스 수동 수집 (URL만 넣어도 제목을 자동 생성하도록 업그레이드)
   directApplyBtn.addEventListener('click', () => {
-    const title = directTitleInput.value.trim();
-    let url = directUrlInput.value.trim();
+    let title = directTitleInput.value.trim();
+    const url = directUrlInput.value.trim();
     
-    if(!title) return alert("뉴스 제목은 필수입니다. 붙여넣어 주세요!");
+    // 제목도 없고 URL도 없으면 에러
+    if(!title && !url) {
+      return alert("뉴스 제목이나 URL(링크) 중 하나는 반드시 입력해 주세요!");
+    }
     
-    if(!url) {
-      url = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(title)}`;
+    // 💡 핵심 포인트: 제목이 비어있고 URL만 있을 때 처리
+    if(!title && url) {
+      // URL 주소창에서 핵심 단어나 도메인을 추출해 임시 제목을 만듭니다.
+      try {
+        const urlObj = new URL(url);
+        // 예: "naver.com 경제 뉴스 기사" 형식으로 임시 제목 부여
+        title = `${urlObj.hostname} 기사 (URL 기반 분석 요청)`;
+      } catch (err) {
+        // 올바른 URL 형태가 아닐 경우 처리
+        title = "입력된 링크 기반 경제 뉴스";
+      }
     }
 
-    selectedNews = { title: title, link: url };
-    gptBtn.disabled = false; // GPT 버튼 해제
+    // 만약 사용자가 제목만 적고 URL을 안 적었다면 네이버 검색 주소로 대체
+    const finalUrl = url ? url : `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(title)}`;
 
-    setStatus(`[직접 입력 선택 완료] 현재 대상: ${title}`);
-    alert(`"${title}" 뉴스가 선택되었습니다!\n3번 버튼을 눌러 GPT 경제 해설을 요청하세요.`);
+    selectedNews = { 
+      title: title, 
+      link: finalUrl,
+      isUrlOnly: (!directTitleInput.value.trim() && url) // URL만 입력했는지 여부 체크 플래그
+    };
+    
+    gptBtn.disabled = false; // GPT 버튼 활성화
+
+    setStatus(`[입력 완료] 뉴스 설정됨: ${title}`);
+    alert(`뉴스 설정 완료!\n이제 3번 버튼을 누르면 GPT가 해당 URL 링크 정보를 감안하여 경제 해설을 작성합니다.`);
   });
-
   // [기능 3] GPT 설명 생성 및 자동 TTS 오디오 연동
   gptBtn.addEventListener('click', async () => {
     if(!selectedNews) return;
@@ -329,8 +348,14 @@ const firebaseConfig = {
     explanationOutput.textContent = "AI 경제 해설사가 분석을 시작했습니다...";
     gptBtn.disabled = true;
 
-    try {
-      const prompt = `너는 친절하고 전문적인 경제 뉴스 해설사야. 다음 경제 뉴스의 제목을 보고, 고등학생도 직관적으로 이해할 수 있도록 쉬운 예시를 들어 3문장 이내로 명쾌하게 설명해줘.\n\n뉴스 제목: ${selectedNews.title}`;
+try {
+      // selectedNews에 저장된 정보를 바탕으로 맞춤형 프롬프트 제공
+      let prompt = "";
+      if (selectedNews.isUrlOnly) {
+        prompt = `너는 친절하고 전문적인 경제 뉴스 해설사야. 사용자가 특정 경제 뉴스 기사의 주소(${selectedNews.link})를 제공했어. 이 주소(도메인이나 텍스트 힌트)를 참고하거나, 최근 가장 뜨거운 글로벌/국내 경제 트렌드를 반영하여 고등학생도 이해할 수 있는 유익한 경제 상식 및 뉴스 해설을 3문장 이내로 명쾌하게 지어내어 설명해줘.`;
+      } else {
+        prompt = `너는 친절하고 전문적인 경제 뉴스 해설사야. 다음 경제 뉴스의 제목을 보고, 고등학생도 직관적으로 이해할 수 있도록 쉬운 예시를 들어 3문장 이내로 명쾌하게 설명해줘.\n\n뉴스 제목: ${selectedNews.title}`;
+      }
       
       const gptResponse = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
