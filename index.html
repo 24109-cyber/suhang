@@ -141,9 +141,9 @@ const firebaseConfig = {
   appId: "1:496355380495:web:716eed867ba27186df827a",
   measurementId: "G-HDVXCH589F"
 };
+  // ⚠️ [필수 설정 2] 새로 발급받은 OpenAI API 비밀 키를 아래 따옴표 안에 넣으세요.
+  const OPENAI_API_KEY = "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";
 
-  // ⚠️ [필수 설정 2] 본인의 OpenAI API 비밀 키를 입력하세요.
-  const OPENAI_API_KEY = "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"
   // Firebase 및 인증 서비스 초기화
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
@@ -337,7 +337,7 @@ const firebaseConfig = {
     alert(`"${title}" 기사 데이터 픽업 완료!\n이제 3번 버튼을 눌러 인공지능 경제 해설을 받아보세요.`);
   });
 
-  // [기능 3] GPT 설명 빌더 (★CORS 차단 방지 프록시 탑재)
+  // [기능 3] GPT 설명 빌더 (★프록시 탑재 및 일반 따옴표 문자열 연산자로 완벽 결합)
   gptBtn.addEventListener('click', async () => {
     if(!selectedNews) return;
     setStatus("OpenAI 신경망 엔진을 호출하여 분석문을 빌드하는 중...");
@@ -361,7 +361,8 @@ const firebaseConfig = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`
+          // 💡 오차를 방지하기 위해 백틱 지우고 큰따옴표 결합 구조로 최종 셋팅!
+          "Authorization": "Bearer " + OPENAI_API_KEY
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -383,12 +384,12 @@ const firebaseConfig = {
       gptBtn.disabled = false;
     } catch(e) {
       console.error(e);
-      explanationOutput.textContent = "GPT 경제 분석 빌드 실패: " + e.message + "\n(API Key 만료 및 잔액 부족, 혹은 프록시 순간 지연 오류일 수 있습니다.)";
+      explanationOutput.textContent = "GPT 경제 분석 빌드 실패: " + e.message + "\n(GitHub 저장소가 여전히 Public공개 상태이면 발급된 키가 수 초 만에 정지될 수 있으니 꼭 Private으로 바꾸셔야 합니다!)";
       gptBtn.disabled = false;
     }
   });
 
-  // [기능 4] TTS 오디오 가이드 합성 (★CORS 차단 방지 프록시 탑재)
+  // [기능 4] TTS 오디오 가이드 합성 (★프록시 및 일반 따옴표 결합 완료)
   async function generateTTS(text) {
     setStatus("AI 성우의 오디오 브리핑 파일 생성 파이프라인 가동 중...");
     try {
@@ -399,7 +400,8 @@ const firebaseConfig = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`
+          // 💡 여기 헤더도 오차 없는 문자열 조합으로 완전 봉인!
+          "Authorization": "Bearer " + OPENAI_API_KEY
         },
         body: JSON.stringify({
           model: "tts-1",
