@@ -52,7 +52,7 @@
 
 <div class="container">
   <h1>AI 경제 뉴스 해설사</h1>
-  <div class="subtitle">GitHub Actions Secrets 치트키로 API 보안 강화를 마친 최종 마스터 버전</div>
+  <div class="subtitle">Anthropic Claude 3.5 Sonnet 및 클라우드 프록시 허브가 연동된 보안 강화 버전</div>
 
   <div class="section">
     <div class="section-title">
@@ -97,10 +97,10 @@
   </div>
 
   <div class="section">
-    <div class="section-title">3. GPT 경제 해설 생성 및 오디오 리딩</div>
-    <button id="gptBtn" class="btn-secondary" disabled>GPT 해설 및 TTS 오디오 생성</button>
+    <div class="section-title">3. Claude 경제 해설 생성 및 오디오 리딩</div>
+    <button id="gptBtn" class="btn-secondary" disabled>Claude 해설 및 TTS 오디오 생성</button>
     <div style="margin-top: 15px;">
-      <div style="font-weight: bold; margin-bottom: 5px;">[GPT 해설 결과]</div>
+      <div style="font-weight: bold; margin-bottom: 5px;">[Claude 해설 결과]</div>
       <div id="explanationOutput" class="output-box">뉴스를 선택하고 해설을 요청하세요.</div>
     </div>
     <div style="margin-top: 15px; display: none;" id="audioPlayerContainer">
@@ -130,7 +130,7 @@
   } from "firebase/auth";
   import { getDatabase, ref, push } from "firebase/database";
 
-  // ⚠️ 본인의 파이어베이스 설정을 여기에 알맞게 채워 넣으세요!
+  // ⚠️ 본인의 파이어베이스 설정을 여기에 정확히 채워 넣으세요!
 const firebaseConfig = {
   apiKey: "AIzaSyDIw9QBT1IohdQWoqwQyKyuOFKy_5A0r0k",
   authDomain: "connect-bde66.firebaseapp.com",
@@ -141,10 +141,10 @@ const firebaseConfig = {
   appId: "1:496355380495:web:716eed867ba27186df827a",
   measurementId: "G-HDVXCH589F"
 };
-  // 🔒 GitHub Actions가 배포할 때 진짜 키로 변환해 주는 보안 치트키 문자열입니다. 수정 금지!
-  const OPENAI_API_KEY = "__OPENAI_API_KEY__";
+  // 🌐 [중요] 2단계에서 생성할 Cloudflare Workers 주소를 여기에 꼭 붙여넣으세요!
+  const CLOUD_API_URL = "https://본인의-클라우드-주소.workers.dev";
 
-  // Firebase 및 인증 서비스 초기화
+  // Firebase 및 서비스 초기화
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const database = getDatabase(app);
@@ -181,232 +181,167 @@ const firebaseConfig = {
 
   function setStatus(msg) { statusMessage.textContent = msg; }
 
+  // Firebase 사용자 인증 모듈
   emailSignUpBtn.addEventListener('click', async () => {
     const email = authEmail.value.trim();
     const password = authPassword.value;
     if(!email || !password) return alert("이메일과 비밀번호를 모두 입력하세요.");
-    setStatus("회원 계정 생성 요청 중...");
     try {
       await createUserWithEmailAndPassword(auth, email, password);
-      alert("회원가입 및 로그인에 성공했습니다!");
-    } catch(e) {
-      alert("가입 오류: " + e.message);
-    }
+      alert("회원가입 성공!");
+    } catch(e) { alert("가입 오류: " + e.message); }
   });
 
   emailSignInBtn.addEventListener('click', async () => {
     const email = authEmail.value.trim();
     const password = authPassword.value;
     if(!email || !password) return alert("이메일과 비밀번호를 모두 입력하세요.");
-    setStatus("이메일 계정 검증 중...");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      alert("성공적으로 로그인되었습니다!");
-    } catch(e) {
-      alert("로그인 오류: " + e.message);
-    }
+      alert("로그인 성공!");
+    } catch(e) { alert("로그인 오류: " + e.message); }
   });
 
   googleLoginBtn.addEventListener('click', async () => {
-    try {
-      setStatus("구글 팝업 인증을 대기 중입니다...");
-      await signInWithPopup(auth, provider);
-    } catch (e) {
-      alert("구글 로그인 실패: " + e.message);
-    }
+    try { await signInWithPopup(auth, provider); } catch (e) { alert("구글 로그인 실패: " + e.message); }
   });
 
-  logoutBtn.addEventListener('click', () => {
-    signOut(auth).then(() => alert("로그아웃 되었습니다."));
-  });
+  logoutBtn.addEventListener('click', () => { signOut(auth); });
 
   onAuthStateChanged(auth, (user) => {
     if (user) {
       currentUser = user;
-      userInfo.textContent = `접속 상태: ${user.email}`;
-      authForm.style.display = "none";
-      orDivider.style.display = "none";
-      googleLoginBtn.style.display = "none";
-      logoutBtn.style.display = "block";
+      userInfo.textContent = `접속: ${user.email}`;
+      authForm.style.display = "none"; orDivider.style.display = "none"; googleLoginBtn.style.display = "none"; logoutBtn.style.display = "block";
     } else {
       currentUser = null;
-      userInfo.textContent = "로그인 없이 게스트로 사용 가능";
-      authForm.style.display = "flex";
-      orDivider.style.display = "block";
-      googleLoginBtn.style.display = "block";
-      logoutBtn.style.display = "none";
+      userInfo.textContent = "게스트 상태로 사용 가능";
+      authForm.style.display = "flex"; orDivider.style.display = "block"; googleLoginBtn.style.display = "block"; logoutBtn.style.display = "none";
     }
   });
 
+  // RSS 뉴스 자동 수집 엔진
   searchBtn.addEventListener('click', async () => {
     const keyword = searchKeyword.value.trim();
     if(!keyword) return alert("검색어를 입력해 주세요.");
-
-    setStatus("실시간 수집 채널을 연동 중입니다...");
     newsList.innerHTML = "뉴스 데이터를 로드하고 있습니다...";
     newsList.style.display = "block";
-
     try {
       const googleNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword + " 경제")}&hl=ko&gl=KR&ceid=KR:ko`;
       const targetUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(googleNewsUrl)}`;
-      
       const response = await fetch(targetUrl);
       const data = await response.json();
-      
-      if (data.status !== "ok") throw new Error("CORS 블록 제어 감지");
-
+      if (data.status !== "ok") throw new Error();
       const items = data.items;
       newsList.innerHTML = "";
-
-      if(!items || items.length === 0) {
-        newsList.innerHTML = "<div class='news-item'>매칭된 뉴스가 없습니다.</div>";
-        return;
-      }
-
       const limit = Math.min(items.length, 7);
       for(let i = 0; i < limit; i++) {
-        const title = items[i].title || "무제 기사";
-        const link = items[i].link || "#";
-        const pubDate = items[i].pubDate ? items[i].pubDate.substring(0, 10) : "기록 없음";
-        
+        const title = items[i].title;
+        const link = items[i].link;
         const div = document.createElement('div');
         div.className = 'news-item';
-        div.innerHTML = `<strong>${title}</strong><br><small style="color:#666">${pubDate}</small>`;
-        
+        div.innerHTML = `<strong>${title}</strong>`;
         div.onclick = () => {
           document.querySelectorAll('.news-item').forEach(el => el.classList.remove('selected'));
           div.classList.add('selected');
           selectedNews = { title, link, isUrlOnly: false };
           gptBtn.disabled = false;
-          setStatus(`선택된 뉴스: ${title}`);
+          setStatus(`뉴스 선택됨: ${title}`);
         };
         newsList.appendChild(div);
       }
-      setStatus("자동 매칭 수집 완료.");
     } catch (e) {
-      newsList.innerHTML = "<div class='news-item' style='color:#c62828; font-weight:bold;'>⚠️ 검색 채널이 차단되었습니다. 하단 직접 입력에 URL 기사 링크를 붙여넣으세요!</div>";
-      setStatus("CORS로 자동 픽업 실패. 아래 수동 링크 삽입 기능을 이용하세요.");
+      newsList.innerHTML = "<div class='news-item' style='color:#c62828;'>⚠️ 하단 직접 입력에 뉴스 URL 기사 링크를 붙여넣으세요!</div>";
     }
   });
 
   directApplyBtn.addEventListener('click', () => {
     let title = directTitleInput.value.trim();
     const url = directUrlInput.value.trim();
-    
-    if(!title && !url) return alert("뉴스 제목이나 URL 기사 주소 중 최소 하나는 채워주세요!");
-    
+    if(!title && !url) return alert("값을 채워주세요!");
     let isUrlOnlyMode = false;
     if(!title && url) {
       isUrlOnlyMode = true;
-      try {
-        const urlObj = new URL(url);
-        title = `${urlObj.hostname} 제공 링크 기사`;
-      } catch (err) {
-        title = "사용자 직접 복사 링크 뉴스";
-      }
+      try { title = `${new URL(url).hostname} 링크 뉴스`; } catch { title = "수동 스크랩 뉴스"; }
     }
-
-    const finalUrl = url ? url : `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(title)}`;
-    selectedNews = { title: title, link: finalUrl, isUrlOnly: isUrlOnlyMode };
-    
-    gptBtn.disabled = false; 
-    setStatus(`[수동 지정 완료]: ${title}`);
-    alert(`"${title}" 데이터 선택 완료! 3번 버튼을 눌러보세요.`);
+    selectedNews = { title, link: url || `https://search.naver.com/search.naver?query=${encodeURIComponent(title)}`, isUrlOnly: isUrlOnlyMode };
+    gptBtn.disabled = false;
+    alert("뉴스 선택 완료!");
   });
 
+  // 🚀 클라우드를 통해 Claude 3.5 Sonnet 연동 및 해설 요청
   gptBtn.addEventListener('click', async () => {
     if(!selectedNews) return;
-    setStatus("OpenAI 엔진을 호출하여 해설을 빌드하는 중...");
-    explanationOutput.textContent = "인공지능 해설사가 실시간으로 작성하는 중입니다. 잠시만 기다려 주세요...";
+    setStatus("클라우드 게이트웨이를 경유하여 Claude 3.5 엔진을 구동 중...");
+    explanationOutput.textContent = "클라우드 허브가 Anthropic Claude 서버와 암호화 통신 중입니다...";
     gptBtn.disabled = true;
 
     try {
-      let prompt = "";
-      if (selectedNews.isUrlOnly) {
-        prompt = `너는 친절하고 전문적인 경제 뉴스 해설사야. 사용자가 특정 경제 뉴스 기사의 주소(${selectedNews.link})를 제공했어. 이 주소를 참고하거나 최신 트렌드를 반영하여 고등학생도 이해할 수 있는 유익한 경제 상식 및 뉴스 해설을 3문장 이내로 명쾌하게 설명해줘.`;
-      } else {
-        prompt = `너는 친절하고 전문적인 경제 뉴스 해설사야. 다음 경제 뉴스의 제목을 보고, 고등학생도 직관적으로 이해할 수 있도록 쉬운 예시를 들어 3문장 이내로 명쾌하게 설명해줘.\n\n뉴스 제목: ${selectedNews.title}`;
-      }
-      
-      const proxyUrl = "https://corsproxy.io/?"; 
-      const targetUrl = "https://api.openai.com/v1/chat/completions";
+      let prompt = selectedNews.isUrlOnly 
+        ? `너는 전문적인 경제 뉴스 해설사야. 사용자가 제공한 경제 뉴스 기사 주소(${selectedNews.link})를 바탕으로, 고등학생들이 직관적으로 이해할 수 있는 유익한 핵심 경제 상식을 3문장 이내로 명쾌하게 해설해줘.`
+        : `너는 전문적인 경제 뉴스 해설사야. 다음 경제 뉴스 제목 [${selectedNews.title}]을 보고, 고등학생들이 아주 쉽게 받아들일 수 있도록 현실적인 예시를 들어 3문장 이내로 명쾌하게 해설해줘.`;
 
-      const gptResponse = await fetch(proxyUrl + encodeURIComponent(targetUrl), {
+      const response = await fetch(CLOUD_API_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + OPENAI_API_KEY
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.7
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "claude", prompt: prompt })
       });
 
-      const gptData = await gptResponse.json();
-      if(gptData.error) throw new Error(gptData.error.message);
+      const data = await response.json();
+      if(!response.ok) throw new Error(data.error || "클라우드 연동 거부");
 
-      currentExplanation = gptData.choices[0].message.content.trim();
+      currentExplanation = data.result;
       explanationOutput.textContent = currentExplanation;
       
+      // 음성 파일 인코딩 함수 연동 호출
       await generateTTS(currentExplanation);
       
       saveBtn.disabled = false;
       gptBtn.disabled = false;
     } catch(e) {
       console.error(e);
-      explanationOutput.textContent = "GPT 빌드 실패: " + e.message;
+      explanationOutput.textContent = "Claude 빌드 오류: " + e.message;
       gptBtn.disabled = false;
     }
   });
 
+  // 🚀 클라우드를 경유하여 음성 합성(TTS) 파일 빌드
   async function generateTTS(text) {
-    setStatus("AI 브리핑 파일을 생성 중...");
+    setStatus("클라우드 서버에서 브리핑 오디오 데이터를 변환하는 중...");
     try {
-      const proxyUrl = "https://corsproxy.io/?"; 
-      const targetUrl = "https://api.openai.com/v1/audio/speech";
-
-      const ttsResponse = await fetch(proxyUrl + encodeURIComponent(targetUrl), {
+      const response = await fetch(CLOUD_API_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + OPENAI_API_KEY
-        },
-        body: JSON.stringify({ model: "tts-1", input: text, voice: "alloy" })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "tts", text: text })
       });
 
-      if (!ttsResponse.ok) throw new Error("오디오 서버 응답 거부");
+      if (!response.ok) throw new Error();
 
-      const audioBlob = await ttsResponse.blob();
+      const data = await response.json();
+      // 수신한 Base64 데이터를 브라우저용 바이너리로 해제
+      const audioBytes = Uint8Array.from(atob(data.audioBase64), c => c.charCodeAt(0));
+      const audioBlob = new Blob([audioBytes], { type: "audio/mpeg" });
+      
       ttsAudio.src = URL.createObjectURL(audioBlob);
       audioPlayerContainer.style.display = "block";
-      setStatus("모든 AI 요약 브리핑 셋업이 완료되었습니다!");
+      setStatus("Claude 해설 및 브리핑 세트 구축 완료!");
     } catch(e) {
-      setStatus("오디오 가이드 빌드 실패");
+      setStatus("Claude 해설 완료 (TTS 음성은 바이패스됨)");
     }
   }
 
   saveBtn.addEventListener('click', async () => {
     if(!selectedNews || !currentExplanation) return;
-    setStatus("파이어베이스 보관함에 기록 중...");
-    saveBtn.disabled = true;
-
     try {
-      const dbRef = ref(database, 'news_notes');
-      await push(dbRef, {
+      await push(ref(database, 'news_notes'), {
         userEmail: currentUser ? currentUser.email : "guest_user",
         newsTitle: selectedNews.title,
         newsLink: selectedNews.link,
         explanation: currentExplanation,
         savedAt: new Date().toISOString()
       });
-      alert("나만의 경제 해설 노트에 안전하게 보관되었습니다.");
-      setStatus("데이터베이스 저장 완료.");
-    } catch(e) {
-      alert("보관 실패: " + e.message);
-      saveBtn.disabled = false;
-    }
+      alert("해설 노트에 영구 보관되었습니다!");
+    } catch(e) { alert("저장 실패: " + e.message); }
   });
 </script>
 </body>
