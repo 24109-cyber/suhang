@@ -516,7 +516,7 @@ const firebaseConfig = {
           method: 'POST',
           body: JSON.stringify({
             type: 'all', // 기존 tts에서 'all' 유형으로 확장 요청 (Apps Script 단에서 텍스트와 tts 동시 처리 유도)
-            text: customPrompt,
+            question: customPrompt,
             model: model,
             voice: voice,
             speed: speed
