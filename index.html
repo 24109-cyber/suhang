@@ -256,21 +256,33 @@ const firebaseConfig = {
   });
 
   // OpenAI TTS 오디오 합성
-  async function generateTTS(text) {
-    setStatus("음성 변환 파일 인코딩 중...");
-    try {
-      const response = await fetch("https://corsproxy.io/?https://api.openai.com/v1/audio/speech", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENAI_API_KEY}` },
-        body: JSON.stringify({ model: "tts-1", input: text, voice: "alloy" })
-      });
-      if (!response.ok) throw new Error();
-      const blob = await response.blob();
-      ttsAudio.src = URL.createObjectURL(blob);
-      audioPlayerContainer.style.display = "block"; setStatus("모든 시스템 완료!");
-    } catch(e) { setStatus("텍스트 생성 성공 (오디오 에러)"); }
-  }
+// 🚀 OpenAI TTS 오디오 데이터 수신 함수
+async function generateTTS(text) {
+  setStatus("OpenAI 가속 서버에서 TTS 음성 리딩 파일 인코딩 중...");
+  try {
+    const response = await fetch("https://corsproxy.io/?https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}` // ◀ 파이어베이스에서 긁어온 키가 들어가는 곳!
+      },
+      body: JSON.stringify({
+        model: "tts-1",    // OpenAI 오디오 인공지능 모델
+        input: text,       // gpt가 만든 해설 텍스트
+        voice: "alloy"     // 목소리 타입 (alloy)
+      })
+    });
 
+    if (!response.ok) throw new Error();
+
+    const blob = await response.blob();
+    ttsAudio.src = URL.createObjectURL(blob); // ◀ 오디오 태그에 음성 파일 주입!
+    audioPlayerContainer.style.display = "block"; // ◀ 플레이어 화면에 보이기
+    setStatus("모든 AI 브리핑 시스템이 매끄럽게 완료되었습니다!");
+  } catch(e) {
+    setStatus("텍스트 생성 성공 (오디오 변환 오류)");
+  }
+}
   saveBtn.addEventListener('click', async () => {
     if(!selectedNews || !currentExplanation) return;
     try {
